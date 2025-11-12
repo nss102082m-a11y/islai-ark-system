@@ -10,40 +10,13 @@ export function CurrentWeather() {
   useEffect(() => {
     const updateWeather = async () => {
       try {
-        const rawData = await fetchWeatherFromFastAPI();
+        // FastAPIから直接変換済みのデータを取得
+        const weatherData = await fetchWeatherFromFastAPI();
 
-        // FastAPIから取得したデータをパース
-        const timeSeries = rawData[0].timeSeries;
-        const weatherData = timeSeries[0];
-        const detailData = timeSeries[1] || {};
-        const tempData = timeSeries[2] || {};
+        console.log('[CurrentWeather] 📊 取得データ:', weatherData);
 
-        const area = weatherData.areas[0];
-        const detailArea = detailData.areas?.[0] || {};
-        const tempArea = tempData.areas?.[0] || {};
-
-        // 風速を取得
-        let windSpeed = 0;
-        const windSpeedData = detailArea.winds?.[0];
-        if (windSpeedData) {
-          const match = windSpeedData.match(/最大風速\s*(\d+(?:\.\d+)?)\s*メートル/);
-          if (match) {
-            windSpeed = parseFloat(match[1]);
-          }
-        }
-
-        const parsedWeather = {
-          weather: area.weathers?.[0] || '情報なし',
-          weatherCode: area.weatherCodes?.[0] || '100',
-          temp: tempArea.temps?.[0] || '--',
-          wind: area.winds?.[0] || '情報なし',
-          wave: area.waves?.[0] || '情報なし',
-          pop: area.pops?.[0] || '0',
-          windSpeed
-        };
-
-        setWeather(parsedWeather);
-        const estimatedSpeed = parseWindSpeed(parsedWeather.wind);
+        setWeather(weatherData);
+        const estimatedSpeed = parseWindSpeed(weatherData.wind);
         setRealTimeWindSpeed(estimatedSpeed);
       } catch (error) {
         console.error('天気取得エラー:', error);
