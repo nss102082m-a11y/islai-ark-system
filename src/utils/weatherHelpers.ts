@@ -1,42 +1,44 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyp3Q7cMbJURDnLJuVmwX1KFQ8ho7vcu6-lVGQyLj1akfiB32-7XsXP9Lvj491W564y/exec';
+const WEATHER_API_URL = 'http://127.0.0.1:8787/api/weather/';
 
 const requestCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_DURATION = 60000;
 
-const fetchViaAppsScript = async (action: string) => {
-  const cacheKey = `${APPS_SCRIPT_URL}?action=${action}`;
+const fetchWeatherData = async () => {
+  const cacheKey = WEATHER_API_URL;
 
   const cached = requestCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    console.log(`[fetchViaAppsScript] ✅ キャッシュヒット: ${action}`);
+    console.log('[WEATHER] ✅ キャッシュから取得');
     return cached.data;
   }
 
-  console.log(`[fetchViaAppsScript] 🌐 リクエスト送信: ${action}`);
+  console.log('[WEATHER] 🌐 FastAPIから取得開始');
 
   try {
-    const timestamp = Date.now();
-    const url = `${APPS_SCRIPT_URL}?action=${action}&t=${timestamp}`;
+    const response = await fetch(WEATHER_API_URL);
 
-    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
+
     const result = await response.json();
 
     if (!result.success) {
       throw new Error(result.error || 'データ取得に失敗しました');
     }
 
-    requestCache.set(cacheKey, { data: result.data, timestamp: Date.now() });
+    requestCache.set(cacheKey, {
+      data: result.data,
+      timestamp: Date.now()
+    });
 
-    console.log('[fetchViaAppsScript] ✅ データ取得成功');
+    console.log('[WEATHER] ✅ FastAPIから取得完了');
     return result.data;
   } catch (error) {
-    console.error('[fetchViaAppsScript] ❌ API取得エラー:', error);
+    console.error('[WEATHER] ❌ API取得エラー:', error);
 
     if (cached) {
-      console.warn('[fetchViaAppsScript] ⚠️ 古いキャッシュを使用');
+      console.warn('[WEATHER] ⚠️ 古いキャッシュを使用');
       return cached.data;
     }
 
@@ -172,7 +174,7 @@ export const parseWarnings = (data: any) => {
 export const fetchCurrentWeather = async () => {
   try {
     console.log('[WEATHER] 🌐 天気データ取得開始');
-    const data = await fetchViaAppsScript('weather');
+    const data = await fetchWeatherData();
 
     console.log('[WEATHER] 📡 生データ:', data);
     console.log('[WEATHER] 📊 データ構造:', {
