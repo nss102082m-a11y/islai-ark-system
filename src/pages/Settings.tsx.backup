@@ -1,0 +1,606 @@
+import { useState, useEffect } from 'react';
+import { Layout } from '../components/Layout';
+import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { BOAT_CAPACITY, INITIAL_ATTENDANTS } from '../constants';
+import { User as UserIcon, Palette, Ship, DollarSign, Plus, Trash2, Save, Calendar, Clock } from 'lucide-react';
+import { AttendantPricing, AttendantPeriod, InitialTimes } from '../types';
+import { addMinutes, parse, format } from 'date-fns';
+
+export function Settings() {
+  const { currentUser } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const [attendants, setAttendants] = useState<string[]>(INITIAL_ATTENDANTS);
+  const [newAttendant, setNewAttendant] = useState('');
+  const [pricing, setPricing] = useState({
+    adult: 5000,
+    child: 3000,
+    infant: 0
+  });
+  const [attendantPricing, setAttendantPricing] = useState<AttendantPricing[]>([]);
+  const [initialTimes, setInitialTimes] = useState<InitialTimes>({
+    kaji: '09:00',
+    mui: '09:15',
+    tida: '09:00'
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const attendantsDoc = await getDoc(doc(db, 'settings', 'attendants'));
+      if (attendantsDoc.exists()) {
+        const attList = attendantsDoc.data().list || INITIAL_ATTENDANTS;
+        setAttendants(attList);
+
+        const pricingData = attList.map((att: string) => ({
+          attendant: att,
+          periods: [],
+          defaultRate: 1000
+        }));
+        setAttendantPricing(pricingData);
+      }
+
+      const pricingDoc = await getDoc(doc(db, 'settings', 'pricing'));
+      if (pricingDoc.exists()) {
+        setPricing(pricingDoc.data() as any);
+      }
+
+      const attendantPricingDoc = await getDoc(doc(db, 'settings', 'attendantPricing'));
+      if (attendantPricingDoc.exists()) {
+        setAttendantPricing(attendantPricingDoc.data().pricing || []);
+      }
+
+      const initialTimesDoc = await getDoc(doc(db, 'settings', 'initialTimes'));
+      if (initialTimesDoc.exists()) {
+        setInitialTimes(initialTimesDoc.data() as InitialTimes);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  };
+
+  const saveAttendants = async () => {
+    try {
+      setSaving(true);
+      await setDoc(doc(db, 'settings', 'attendants'), { list: attendants });
+      alert('アテンダントリストを保存しました');
+    } catch (error) {
+      console.error('Error saving attendants:', error);
+      alert('保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const savePricing = async () => {
+    try {
+      setSaving(true);
+      await setDoc(doc(db, 'settings', 'pricing'), pricing);
+      alert('料金設定を保存しました');
+    } catch (error) {
+      console.error('Error saving pricing:', error);
+      alert('保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveAttendantPricing = async () => {
+    try {
+      setSaving(true);
+      await setDoc(doc(db, 'settings', 'attendantPricing'), { pricing: attendantPricing });
+      alert('アテンダント料金設定を保存しました');
+    } catch (error) {
+      console.error('Error saving attendant pricing:', error);
+      alert('保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveInitialTimes = async () => {
+    try {
+      setSaving(true);
+      await setDoc(doc(db, 'settings', 'initialTimes'), initialTimes);
+      alert('初期運航時刻を保存しました');
+    } catch (error) {
+      console.error('Error saving initial times:', error);
+      alert('保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateInitialTime = (boat: keyof InitialTimes, time: string) => {
+    setInitialTimes({ ...initialTimes, [boat]: time });
+  };
+
+  const generateTimeOptions = (start: string, end: string) => {
+    const options = [];
+    let current = parse(start, 'HH:mm', new Date());
+    const endTime = parse(end, 'HH:mm', new Date());
+
+    while (current <= endTime) {
+      const timeStr = format(current, 'HH:mm');
+      options.push(
+        <option key={timeStr} value={timeStr}>{timeStr}</option>
+      );
+      current = addMinutes(current, 5);
+    }
+
+    return options;
+  };
+
+  const addAttendant = () => {
+    if (newAttendant.trim() && !attendants.includes(newAttendant.trim())) {
+      const newAtt = newAttendant.trim();
+      setAttendants([...attendants, newAtt]);
+      setAttendantPricing([
+        ...attendantPricing,
+        { attendant: newAtt, periods: [], defaultRate: 1000 }
+      ]);
+      setNewAttendant('');
+    }
+  };
+
+  const removeAttendant = (name: string) => {
+    setAttendants(attendants.filter(a => a !== name));
+    setAttendantPricing(attendantPricing.filter(ap => ap.attendant !== name));
+  };
+
+  const addPeriod = (attendant: string) => {
+    const updated = attendantPricing.map(ap => {
+      if (ap.attendant === attendant) {
+        return {
+          ...ap,
+          periods: [
+            ...ap.periods,
+            { start: '', end: '', rate: 1500 }
+          ]
+        };
+      }
+      return ap;
+    });
+    setAttendantPricing(updated);
+  };
+
+  const removePeriod = (attendant: string, periodIndex: number) => {
+    const updated = attendantPricing.map(ap => {
+      if (ap.attendant === attendant) {
+        return {
+          ...ap,
+          periods: ap.periods.filter((_, i) => i !== periodIndex)
+        };
+      }
+      return ap;
+    });
+    setAttendantPricing(updated);
+  };
+
+  const updatePeriod = (attendant: string, periodIndex: number, field: keyof AttendantPeriod, value: any) => {
+    const updated = attendantPricing.map(ap => {
+      if (ap.attendant === attendant) {
+        const newPeriods = [...ap.periods];
+        (newPeriods[periodIndex] as any)[field] = value;
+        return { ...ap, periods: newPeriods };
+      }
+      return ap;
+    });
+    setAttendantPricing(updated);
+  };
+
+  const updateDefaultRate = (attendant: string, rate: number) => {
+    const updated = attendantPricing.map(ap => {
+      if (ap.attendant === attendant) {
+        return { ...ap, defaultRate: rate };
+      }
+      return ap;
+    });
+    setAttendantPricing(updated);
+  };
+
+  return (
+    <Layout>
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">設定</h1>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center">
+            <UserIcon className="w-6 h-6 mr-2 text-teal-500" />
+            アカウント情報
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                名前
+              </label>
+              <input
+                type="text"
+                value={currentUser?.name || ''}
+                disabled
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                メールアドレス
+              </label>
+              <input
+                type="email"
+                value={currentUser?.email || ''}
+                disabled
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                役割
+              </label>
+              <input
+                type="text"
+                value={currentUser?.role || ''}
+                disabled
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center">
+            <Palette className="w-6 h-6 mr-2 text-teal-500" />
+            テーマ設定
+          </h2>
+
+          <div className="grid grid-cols-3 gap-4">
+            <button
+              onClick={() => setTheme('light')}
+              className={`p-4 rounded-lg border-2 transition-all ${
+                theme === 'light'
+                  ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+              }`}
+              style={{ minHeight: '80px' }}
+            >
+              <div className="text-center">
+                <div className="text-3xl mb-2">☀️</div>
+                <p className="font-medium text-gray-900 dark:text-white">ライト</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setTheme('dark')}
+              className={`p-4 rounded-lg border-2 transition-all ${
+                theme === 'dark'
+                  ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+              }`}
+              style={{ minHeight: '80px' }}
+            >
+              <div className="text-center">
+                <div className="text-3xl mb-2">🌙</div>
+                <p className="font-medium text-gray-900 dark:text-white">ダーク</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setTheme('system')}
+              className={`p-4 rounded-lg border-2 transition-all ${
+                theme === 'system'
+                  ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+              }`}
+              style={{ minHeight: '80px' }}
+            >
+              <div className="text-center">
+                <div className="text-3xl mb-2">⚙️</div>
+                <p className="font-medium text-gray-900 dark:text-white">システム</p>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
+              <UserIcon className="w-6 h-6 mr-2 text-teal-500" />
+              アテンダントリスト
+            </h2>
+            <button
+              onClick={saveAttendants}
+              disabled={saving}
+              className="flex items-center space-x-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg disabled:opacity-50"
+              style={{ minHeight: '44px' }}
+            >
+              <Save className="w-5 h-5" />
+              <span>保存</span>
+            </button>
+          </div>
+
+          <div className="flex space-x-2 mb-4">
+            <input
+              type="text"
+              value={newAttendant}
+              onChange={(e) => setNewAttendant(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && addAttendant()}
+              placeholder="アテンダント名を入力"
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              style={{ minHeight: '44px' }}
+            />
+            <button
+              onClick={addAttendant}
+              className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {attendants.map(name => (
+              <div
+                key={name}
+                className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+              >
+                <span className="text-gray-900 dark:text-white">{name}</span>
+                <button
+                  onClick={() => removeAttendant(name)}
+                  className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                  style={{ minHeight: '44px', minWidth: '44px' }}
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
+              <DollarSign className="w-6 h-6 mr-2 text-teal-500" />
+              料金設定
+            </h2>
+            <button
+              onClick={savePricing}
+              disabled={saving}
+              className="flex items-center space-x-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg disabled:opacity-50"
+              style={{ minHeight: '44px' }}
+            >
+              <Save className="w-5 h-5" />
+              <span>保存</span>
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                大人料金 (¥)
+              </label>
+              <input
+                type="number"
+                value={pricing.adult}
+                onChange={(e) => setPricing({ ...pricing, adult: parseInt(e.target.value) || 0 })}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                子供料金 (¥)
+              </label>
+              <input
+                type="number"
+                value={pricing.child}
+                onChange={(e) => setPricing({ ...pricing, child: parseInt(e.target.value) || 0 })}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                幼児料金 (¥)
+              </label>
+              <input
+                type="number"
+                value={pricing.infant}
+                onChange={(e) => setPricing({ ...pricing, infant: parseInt(e.target.value) || 0 })}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
+              <Clock className="w-6 h-6 mr-2 text-teal-500" />
+              初期運航時刻
+            </h2>
+            <button
+              onClick={saveInitialTimes}
+              disabled={saving}
+              className="flex items-center space-x-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg disabled:opacity-50"
+              style={{ minHeight: '44px' }}
+            >
+              <Save className="w-5 h-5" />
+              <span>保存</span>
+            </button>
+          </div>
+
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            各船の1便目の開始時刻を設定します
+          </p>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <label className="w-32 font-semibold text-gray-900 dark:text-white">
+                カジ
+              </label>
+              <select
+                value={initialTimes.kaji}
+                onChange={(e) => updateInitialTime('kaji', e.target.value)}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              >
+                {generateTimeOptions('08:00', '12:00')}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <label className="w-32 font-semibold text-gray-900 dark:text-white">
+                ムイ
+              </label>
+              <select
+                value={initialTimes.mui}
+                onChange={(e) => updateInitialTime('mui', e.target.value)}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              >
+                {generateTimeOptions('08:00', '12:00')}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <label className="w-32 font-semibold text-gray-900 dark:text-white">
+                ティダ
+              </label>
+              <select
+                value={initialTimes.tida}
+                onChange={(e) => updateInitialTime('tida', e.target.value)}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                style={{ minHeight: '44px' }}
+              >
+                {generateTimeOptions('08:00', '12:00')}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
+              <Calendar className="w-6 h-6 mr-2 text-teal-500" />
+              アテンダー期間別料金
+            </h2>
+            <button
+              onClick={saveAttendantPricing}
+              disabled={saving}
+              className="flex items-center space-x-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg disabled:opacity-50"
+              style={{ minHeight: '44px' }}
+            >
+              <Save className="w-5 h-5" />
+              <span>保存</span>
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            {attendantPricing.map(ap => (
+              <div key={ap.attendant} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-gray-900 dark:text-white">{ap.attendant}</h3>
+                  <button
+                    onClick={() => addPeriod(ap.attendant)}
+                    className="flex items-center space-x-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm"
+                    style={{ minHeight: '44px' }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>期間追加</span>
+                  </button>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    デフォルト料金 (¥)
+                  </label>
+                  <input
+                    type="number"
+                    value={ap.defaultRate}
+                    onChange={(e) => updateDefaultRate(ap.attendant, parseInt(e.target.value) || 0)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                    style={{ minHeight: '44px' }}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  {ap.periods.map((period, idx) => (
+                    <div key={idx} className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <input
+                        type="date"
+                        value={period.start}
+                        onChange={(e) => updatePeriod(ap.attendant, idx, 'start', e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-800 dark:text-white"
+                        style={{ minHeight: '44px' }}
+                      />
+                      <span className="text-gray-600 dark:text-gray-400">〜</span>
+                      <input
+                        type="date"
+                        value={period.end}
+                        onChange={(e) => updatePeriod(ap.attendant, idx, 'end', e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-800 dark:text-white"
+                        style={{ minHeight: '44px' }}
+                      />
+                      <input
+                        type="number"
+                        value={period.rate}
+                        onChange={(e) => updatePeriod(ap.attendant, idx, 'rate', parseInt(e.target.value) || 0)}
+                        placeholder="料金"
+                        className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-800 dark:text-white"
+                        style={{ minHeight: '44px' }}
+                      />
+                      <button
+                        onClick={() => removePeriod(ap.attendant, idx)}
+                        className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                        style={{ minHeight: '44px', minWidth: '44px' }}
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center">
+            <Ship className="w-6 h-6 mr-2 text-teal-500" />
+            船舶定員
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {Object.entries(BOAT_CAPACITY).map(([name, capacity]) => (
+              <div
+                key={name}
+                className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg"
+              >
+                <p className="text-lg font-bold text-gray-900 dark:text-white mb-1">
+                  {name}
+                </p>
+                <p className="text-2xl font-bold text-teal-600 dark:text-teal-400">
+                  {capacity}名
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}
